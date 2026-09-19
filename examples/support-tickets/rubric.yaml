@@ -1,0 +1,37 @@
+name: support_ticket_triage
+state_field: text
+model: jev-latest
+
+questions:
+  - name: transcript_valid
+    type: noul
+    instructions: Does this read like a coherent customer message rather than garbled or hallucinated text?
+    accept_confidence: 0.80
+    teacher_confidence: 0.55
+
+  - name: is_ambiguous
+    type: noul
+    instructions: Is this message ambiguous — could it reasonably belong to more than one intent or department?
+    accept_confidence: 0.85
+    teacher_confidence: 0.50
+
+  - name: department
+    type: choice
+    instructions: Which team should handle this ticket?
+    criteria:
+      billing: Payment, subscription, refund, or invoice
+      technical: Bugs, outages, integrations, errors
+      sales: Pricing, upgrades, new accounts
+      other: Does not clearly fit above
+    accept_confidence: 0.85
+    teacher_confidence: 0.55
+
+  - name: urgency
+    type: score
+    instructions: How urgent is this ticket for support response?
+    criteria:
+      - Routine — no time pressure
+      - Moderate — wants timely help
+      - Urgent — explicit time sensitivity or revenue impact
+    accept_confidence: 0.80
+    teacher_confidence: 0.50

@@ -1,0 +1,27 @@
+name: weak_label_triage
+state_field: text
+model: jev-latest
+
+questions:
+  - name: label_plausible
+    type: noul
+    instructions: Given the text and the assigned label field in state, is the assigned label plausible?
+    accept_confidence: 0.85
+    teacher_confidence: 0.55
+
+  - name: department_matches_label
+    type: choice
+    instructions: Which category best matches the message content? Ignore politeness; use facts in the text only.
+    criteria:
+      billing: Payment, refund, invoice
+      technical: Errors, bugs, outages
+      sales: Pricing, upgrades
+      other: General or unclear
+    accept_confidence: 0.85
+    teacher_confidence: 0.55
+
+  - name: label_is_ambiguous
+    type: noul
+    instructions: Is the correct category genuinely ambiguous for this message?
+    accept_confidence: 0.85
+    teacher_confidence: 0.50

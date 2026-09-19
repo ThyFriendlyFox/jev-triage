@@ -1,170 +1,138 @@
 # jev-triage
 
-**Active-learning triage pipeline using [TypeSafe Jev](https://typesafe.ai)** — route unlabeled data by calibrated confidence, log full probability distributions for local distillation, and spend expensive labeling budget only where it changes the outcome.
+Route unlabeled training data with [TypeSafe Jev](https://typesafe.ai): **accept** cheap high-confidence judgments, **queue** the rest for a frontier teacher or humans, and **log soft labels** for optional local distillation.
 
-This repo implements **pattern #3** from the Jev-for-training playbook:
+| | |
+|---|---|
+| **Repo purpose** | Confidence-gated **labeling budget** allocator (pattern #3: active learning triage) |
+| **Sibling** | [jev-curate](https://github.com/ThyFriendlyFox/jev-curate) — drop bad rows *before* triage (pattern #1) |
+| **Deep dive** | [GOALS.md](GOALS.md) — success criteria, anti-goals, mock vs live |
+| **Both repos** | [docs/STACK.md](docs/STACK.md) — recommended order |
 
-| Confidence | Route | Cost |
-|------------|-------|------|
-| High | Accept Jev label | ~$0.042/MTok input |
-| Middling | Queue for expensive teacher (VLM, audio LM, frontier LLM) | Your teacher cost |
-| Low / near boundary | Queue for human review | Your annotator cost |
+---
 
-It also logs **soft labels** (full distributions, not argmax) to `soft_labels.jsonl` for the bootstrap path: train a local head on logged pairs, measure against real outcome labels, cut the cord when the local model wins.
+## What problem this solves
 
-## Why Jev here (and not as your teacher)
+You have a large corpus and several questions per row (valid? category? urgency?). An LLM judge on every row is too slow and too expensive. Jev answers typed questions in one parallel call with **probabilities**, so you can:
 
-Jev is a **System One** model: typed questions in, calibrated probabilities out, no text generation. That makes it ~400× cheaper than an LLM judge at corpus scale and fast enough to filter millions of examples.
+- Auto-label the easy majority (`accepted.jsonl`)
+- Send middling cases to GPT/Claude/VLM (`teacher_queue.jsonl`)
+- Send boundaries and low confidence to annotators (`human_queue.jsonl`)
 
-**Use Jev to decide what enters the training set. Do not distill Jev as your teacher of record** — its ~68% ceiling compounds errors. Real outcome labels (shop costs, emulator pass/fail, human adjudication) remain the training targets.
+**Jev does not replace ground truth.** Success means you still label teacher/human queues and train on **real outcomes** where they exist — Jev is the router, not the teacher of record.
+
+---
+
+## What success looks like (short)
+
+Read the full checklist in [GOALS.md](GOALS.md). In one paragraph:
+
+> You ran live Jev over JSONL with a rubric you trust, got three queues plus `soft_labels.jsonl`, finished labeling teacher/human rows authoritatively, built a training set from **accepted + relabeled** rows, and measured your model on **held-out human (or outcome) labels** — not on “Jev agreed with itself.”
+
+---
 
 ## Quick start
 
 ```bash
 pip install -e ".[dev]"
-export TYPESAFE_API_KEY="sk-..."   # optional; omit to run in mock mode
+export TYPESAFE_API_KEY="sk-..."   # production
 
 jev-triage run \
-  --rubric examples/rubric.yaml \
-  --input examples/corpus.jsonl \
-  --output .output/run1
+  --rubric examples/support-tickets/rubric.yaml \
+  --input examples/support-tickets/corpus.jsonl \
+  --output .output/support-tickets
+
+jev-triage stats --output .output/support-tickets
 ```
 
-Without an API key, the pipeline runs in **mock mode** (deterministic heuristics) so you can develop and test offline.
+| Flag / env | Meaning |
+|------------|---------|
+| `TYPESAFE_API_KEY` | Live Jev via `typesafe-sdk` |
+| `--mock` | Deterministic fake Jev — **tests and plumbing only** |
+| (no key, no flag) | Defaults to mock — install key before real datasets |
 
-### Outputs
+---
 
-| File | Contents |
-|------|----------|
-| `accepted.jsonl` | High-confidence examples — Jev labels accepted free |
-| `teacher_queue.jsonl` | Middling confidence — send to your expensive teacher |
-| `human_queue.jsonl` | Low confidence or near decision boundary |
-| `soft_labels.jsonl` | Full probability distributions for distillation |
-| `errors.jsonl` | Failed rows (pipeline is resumable; re-run skips completed ids) |
+## Examples
 
-```bash
-jev-triage stats --output .output/run1
-jev-triage validate-rubric --rubric examples/rubric.yaml
-```
+Worked scenarios with **SUCCESS.md** per folder:
 
-## Rubric format
+| Example | Command output intent |
+|---------|------------------------|
+| [support-tickets](examples/support-tickets/) | Department + urgency routing |
+| [audio-transcripts](examples/audio-transcripts/) | Post-Whisper lexical triage |
+| [weak-labels](examples/weak-labels/) | Vendor labels — trust vs re-label |
 
-Questions map directly to Jev primitives (`noul`, `choice`, `score`). Per-question thresholds control routing:
+Index: [examples/README.md](examples/README.md)
+
+Legacy paths `examples/rubric.yaml` and `examples/corpus.jsonl` mirror **support-tickets** for backward compatibility.
+
+---
+
+## Outputs
+
+| File | Use |
+|------|-----|
+| `accepted.jsonl` | Provisional labels at your accept thresholds |
+| `teacher_queue.jsonl` | Batch for expensive model labeling |
+| `human_queue.jsonl` | Annotator tool import |
+| `soft_labels.jsonl` | Distributions for KL/BCE distillation experiments |
+| `errors.jsonl` | Fix and re-run; completed `id`s are skipped |
+
+---
+
+## Rubric (thresholds)
+
+Each question is a Jev `noul`, `choice`, or `score` with **accept_confidence** and **teacher_confidence**:
+
+- Above **accept** → contributes toward **accept** route (worst question wins overall)
+- Between **teacher** and **accept** → **teacher**
+- Below **teacher**, or Noul ≈ 0.5, or Choice top-2 within 0.15 → **human**
 
 ```yaml
-name: support_ticket_curation
-state_field: text
-model: jev-latest
-
 questions:
-  - name: transcript_valid
-    type: noul
-    instructions: Does this read like a coherent message, not garbled output?
-    accept_confidence: 0.80
-    teacher_confidence: 0.55
-
   - name: department
     type: choice
     instructions: Which team should handle this?
     criteria:
       billing: Payment or refund issues
       technical: Bugs or outages
-      other: Anything else
     accept_confidence: 0.85
     teacher_confidence: 0.55
 ```
 
-- **Noul** has no native confidence field; this pipeline uses `|p − 0.5| × 2` as belief strength.
-- **Choice / Score** use Jev's returned `confidence`.
-- Examples with Noul near 0.5 or Choice top-two probabilities within 0.15 route to **human** regardless of confidence.
+---
 
-## Soft-label distillation (next step)
-
-Each row in `soft_labels.jsonl` includes:
-
-```json
-{
-  "id": "t001",
-  "state": "...",
-  "route": "accept",
-  "labels": {
-    "department": {
-      "type": "choice",
-      "choice": "billing",
-      "confidence": 0.94,
-      "probabilities": {"billing": 0.94, "technical": 0.04, "other": 0.02},
-      "soft_target": {"billing": 0.94, "technical": 0.04, "other": 0.02}
-    }
-  }
-}
-```
-
-Train a local student with:
-
-- **Choice** → KL divergence against `soft_target`
-- **Noul** → BCE against `probability`
-- **Score** → ordinal / distribution loss against level probabilities
-
-Compare reliability (ECE) and accuracy against **real outcome labels** on a held-out set. When the local head wins, stop calling Jev for that question.
-
-## Audio / multimodal path
-
-Jev is text-only. For audio corpora:
+## Pipeline placement
 
 ```
-audio → Whisper → transcript → Jev triage → soft labels
-                     ↓
-         student: audio → encoder → heads (never sees transcript at inference)
+Raw JSONL
+  → jev-curate (optional)     drop garbage / label mismatch
+  → jev-triage (this repo)     accept | teacher | human
+  → label queues               humans / frontier models
+  → train                      targets = real outcomes
+  → optional local student     distill from soft_labels.jsonl
 ```
 
-Use Jev for **lexical** questions on transcripts. For **acoustic** questions (prosody, noise, overlap), label a small expensive set with an audio LM or humans and multi-task train separate heads — transcript labels cannot teach acoustics.
+---
 
-Validate captions against source on a sample before batch runs; Jev judges only what you put in `state`.
+## Mock vs live (read this)
 
-## Cost sketch
+| | Live Jev | Mock |
+|---|----------|------|
+| **Use when** | Production triage, threshold tuning | `pytest`, CI, learning the CLI |
+| **Probabilities** | Calibrated enough to route | Heuristic keyword toy |
+| **Success** | Queues match spot-checks | Exit 0 + resume works |
 
-| Step | 1M × 500-token examples |
-|------|---------------------------|
-| Jev filter pass | ~$21 |
-| LLM judge (400×) | ~$8,400 |
-| Jev on 1M × 30s audio transcripts (~100 tok) | ~$4.20 |
+**Never** publish a dataset or model based only on mock routing.
 
-Whisper transcription dominates wall time for audio, not Jev.
-
-## Architecture
-
-```
-corpus.jsonl
-    │
-    ▼
-┌─────────────┐     ┌──────────────────────────────────────┐
-│ Jev evaluate│────▶│ Per-question confidence + distributions │
-└─────────────┘     └──────────────────────────────────────┘
-    │
-    ├── accept ──────▶ accepted.jsonl (+ soft_labels.jsonl)
-    ├── teacher ─────▶ teacher_queue.jsonl
-    └── human ───────▶ human_queue.jsonl
-```
-
-Pipeline properties:
-
-- **Resumable** — skips ids already present in any output file
-- **Concurrent-ready** — shard input JSONL; merge outputs (ids are unique keys)
-- **Mock mode** — develop without API access
-
-## The other three patterns (not implemented here)
-
-This repo focuses on active-learning triage. Sibling repos / extensions:
-
-1. **Data curation** — drop failed Noul gates (`transcript_valid`, `label_plausible`, duplicate-in-substance) before training
-2. **Soft labels only** — skip routing; log distributions for every example
-4. **Caption-then-judge** — VLM describes media → Jev judges description (validate captions first)
+---
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
 pytest
+jev-triage validate-rubric --rubric examples/support-tickets/rubric.yaml
 ```
 
 ## License

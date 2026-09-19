@@ -1,0 +1,27 @@
+name: call_transcript_lexical_triage
+state_field: text
+model: jev-latest
+
+questions:
+  - name: asr_plausible
+    type: noul
+    instructions: Does this transcript read like plausible spoken customer speech, not ASR hallucination on silence or noise?
+    accept_confidence: 0.82
+    teacher_confidence: 0.55
+
+  - name: intent_refund
+    type: noul
+    instructions: Is the caller asking for a refund, return, or reversal of a charge?
+    accept_confidence: 0.88
+    teacher_confidence: 0.55
+
+  - name: intent_category
+    type: choice
+    instructions: Primary call intent from wording only (ignore tone; transcript only).
+    criteria:
+      billing: Payments, refunds, charges
+      technical: Product broken, errors, login
+      account: Profile, cancellation, plan change
+      other: Unclear or small talk
+    accept_confidence: 0.85
+    teacher_confidence: 0.55

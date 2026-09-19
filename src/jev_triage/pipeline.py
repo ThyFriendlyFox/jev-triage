@@ -65,11 +65,14 @@ def _example_id(row: dict[str, Any], index: int) -> str:
 
 
 def _extract_state(row: dict[str, Any], rubric: Rubric) -> Any:
-    if rubric.state_field in row:
-        return row[rubric.state_field]
     if "state" in row:
         return row["state"]
-    # Fallback: whole row minus metadata
+    if rubric.state_field in row:
+        primary = row[rubric.state_field]
+        extra = {k: v for k, v in row.items() if k not in ("id", "meta", rubric.state_field)}
+        if extra and isinstance(primary, str):
+            return {rubric.state_field: primary, **extra}
+        return primary
     return {k: v for k, v in row.items() if k not in ("id", "meta")}
 
 

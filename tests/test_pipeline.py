@@ -8,7 +8,7 @@ from jev_triage.rubric import load_rubric
 
 
 def test_pipeline_mock_run(tmp_path: Path):
-    rubric_path = Path(__file__).resolve().parents[1] / "examples" / "rubric.yaml"
+    rubric_path = Path(__file__).resolve().parents[1] / "examples" / "support-tickets" / "rubric.yaml"
     input_path = tmp_path / "in.jsonl"
     input_path.write_text(
         json.dumps({"id": "a", "text": "charged twice please refund ASAP"}) + "\n"
@@ -31,7 +31,7 @@ def test_pipeline_mock_run(tmp_path: Path):
 
 
 def test_pipeline_resumes(tmp_path: Path):
-    rubric_path = Path(__file__).resolve().parents[1] / "examples" / "rubric.yaml"
+    rubric_path = Path(__file__).resolve().parents[1] / "examples" / "support-tickets" / "rubric.yaml"
     input_path = tmp_path / "in.jsonl"
     input_path.write_text(json.dumps({"id": "only", "text": "integration error 500"}) + "\n")
     out = tmp_path / "out"
