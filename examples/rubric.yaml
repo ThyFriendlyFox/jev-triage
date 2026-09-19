@@ -1,0 +1,47 @@
+# Support-ticket curation rubric for Jev active-learning triage.
+# Rule: filter with Jev, do not learn from Jev — use real outcome labels for training targets.
+
+name: support_ticket_curation
+state_field: text
+model: jev-latest
+
+questions:
+  # Gate 1: drop poisoned / hallucinated transcripts before any labeling
+  - name: transcript_valid
+    type: noul
+    instructions: Does this text read like a coherent customer message rather than garbled or hallucinated output?
+    accept_confidence: 0.80
+    teacher_confidence: 0.55
+
+  - name: label_plausible
+    type: noul
+    instructions: Is the assigned category label plausible given the message content?
+    accept_confidence: 0.85
+    teacher_confidence: 0.50
+
+  - name: is_ambiguous
+    type: noul
+    instructions: Is this example ambiguous — could reasonably belong to more than one category?
+    accept_confidence: 0.85
+    teacher_confidence: 0.50
+
+  - name: department
+    type: choice
+    instructions: Which team should handle this ticket?
+    criteria:
+      billing: Payment, subscription, refund, or invoice issues
+      technical: Bugs, outages, integrations, or errors
+      sales: Pricing, upgrades, or new account questions
+      other: Does not clearly fit the above
+    accept_confidence: 0.85
+    teacher_confidence: 0.55
+
+  - name: urgency
+    type: score
+    instructions: How urgent is this ticket?
+    criteria:
+      - Routine — no time pressure expressed
+      - Moderate — customer wants a timely response
+      - Urgent — explicit time sensitivity or business impact
+    accept_confidence: 0.80
+    teacher_confidence: 0.50

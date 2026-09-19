@@ -1,0 +1,10 @@
+{"id": "t001", "text": "Hi, I was charged twice for order A-104. Please refund the duplicate charge ASAP.", "label": "billing"}
+{"id": "t002", "text": "My Stripe integration keeps failing with a 500 error when customers checkout.", "label": "technical"}
+{"id": "t003", "text": "Can you send me pricing for the enterprise plan? We have about 200 seats.", "label": "sales"}
+{"id": "t004", "text": "Thanks!", "label": "other"}
+{"id": "t005", "text": "I think this might be billing or maybe technical — the payment page shows an error but I also see two charges.", "label": "billing"}
+{"id": "t006", "text": "[garbled hallucinated transcript] the the the subscription music playing silence", "label": "billing"}
+{"id": "t007", "text": "Deploy failed twice and customers are seeing 500s. Can someone look now?", "label": "technical"}
+{"id": "t008", "text": "What are your business hours?", "label": "other"}
+{"id": "t009", "text": "I've been waiting three days for a reply about my duplicate charge.", "label": "billing"}
+{"id": "t010", "text": "ambiguous case — unclear intent, possibly feature request or bug report about search", "label": "technical"}
